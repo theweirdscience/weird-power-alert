@@ -1,4 +1,6 @@
 #include <SoftwareSerial.h>
+#include "tinysnore.h"
+
 /*
  * Uncomment this line to receive debug logging on the serial monitor
  */
@@ -19,9 +21,10 @@
   #define GPRSPIN 0
   #define RX 3
   #define TX 4
-  #define VREF 4.97
+  #define VREF 3.2
 #endif
 #define VINPIN A1
+#define BAUDRATE 34800
 
 /*
  * Max value for adc converter as double
@@ -43,8 +46,13 @@ SoftwareSerial SerialAT(RX,TX);
 #define DIVIDER 6.06
 #define QUOTES char(34)
 
+#define adc_disable() (ADCSRA &= ~(1<<ADEN)) // disable ADC (before power-off)
+#define adc_enable()  (ADCSRA |=  (1<<ADEN)) // re-enable ADC
+
 void setup()
 {
+  adc_disable(); // ADC uses ~320uA
+
   #if defined(DEVMODE)
     Serial.begin(38400);
   #endif
@@ -55,7 +63,7 @@ void setup()
 void loop()
 {
   #if defined(ATTINY85)
-    delayWithRelay(3000);
+    sleep(3000, false);
   #endif
   float Vin = measureVoltage();
   sendData(Vin);                                                  // let server know we are alive at the start of the 24 hour cycle
@@ -69,7 +77,9 @@ void loop()
     #if defined(DEVMODE)
       Serial.println("wait ten minutes");
     #endif
-    delayWithRelay(600000);                                       // wait 10 minutes before measuring again
+    
+    sleep(600000, false);                                                // wait 10 minutes before measuring again. CPU will power down to decrease power usage.
+    
     #if defined(DEVMODE)
       Serial.println("measure again");
     #endif
@@ -84,6 +94,18 @@ void loop()
         Serial.println("difference negligible");
       #endif
     }
+  }
+}
+
+void sleep(int ms, boolean init_serial) {
+  pinMode(GPRSPIN, INPUT);
+  if (init_serial == true) {
+    SerialAT.end();
+  }
+  snore(ms);
+  pinMode(GPRSPIN, OUTPUT);
+  if (init_serial == true) {
+    SerialAT.begin(BAUDRATE);
   }
 }
 
@@ -103,19 +125,19 @@ double measureVoltage() {
 void sendData(float v) {
   char battery_id[] = "A122233";
   char vin[5];
-  sprintf(vin, "%f", v);
+  dtostrf(v, 5, 2, vin);                                          // double to string
 
-  unsigned int payloadSize = 91;
+  unsigned int payloadSize = 88;
   payloadSize += strlen(battery_id);
   payloadSize += strlen(vin);
   
   GPRSOn();                                                       // Turn on GPRS module
   
   SerialAT.println("AT+TCPSETUP=0,18.195.219.249,80");            // Connect to server
-  delayWithRelay(3000);
+  sleep(3000, true);
   SerialAT.print("AT+TCPSEND=0,");                                // Perform HTTP GET
   SerialAT.println(payloadSize);
-  delayWithRelay(500);
+  sleep(500, true);
   SerialAT.print("GET /api/battery/car-update/");
   delayWithRelay(10);
   SerialAT.print(v);
@@ -129,11 +151,11 @@ void sendData(float v) {
   SerialAT.print("Host: twsba.satyamsaxena.com\n");
   delayWithRelay(10);
   SerialAT.print("Connection: close\n\r\n");
-  delayWithRelay(500);
+  sleep(500, true);
   SerialAT.print((char)0x0D);
-  delayWithRelay(5000);                                           // Wait until done receiving data
+  sleep(5000, true);                                              // Wait until done receiving data
   SerialAT.println("AT+TCPCLOSE=0");                              // Close connection
-  delayWithRelay(500);
+  sleep(500, true);
   
   GPRSOff();                                                      // Turn off GPRS module
 }
@@ -166,10 +188,10 @@ void GPRSOn() {
     Serial.println("TURNING ON GPRS");
   #endif
   digitalWrite(GPRSPIN, LOW);
-  delayWithRelay(300);
+  sleep(300, false);
   digitalWrite(GPRSPIN, HIGH);
-  SerialAT.begin(115200);
-  delayWithRelay(15000);
+  SerialAT.begin(38400);
+  sleep(15000, true);
   setupGPRS();
 }
 
@@ -182,10 +204,10 @@ void GPRSOff() {
   #endif
   SerialAT.println("AT+CPWROFF");
   #if defined(ATTINY85)
-    delayWithRelay(5000);
+    sleep(5000, false);
   #endif
   digitalWrite(GPRSPIN, LOW);
-  delayWithRelay(5000);
+  sleep(5000, false);
   SerialAT.end();
 }
 
@@ -197,18 +219,18 @@ void setupGPRS() {
     Serial.println("SETTING UP GPRS");
   #endif
   SerialAT.println("AT+XISP=0");
-  delayWithRelay(1000);
+  sleep(1000, true);
  
   // Set apn
   SerialAT.print("AT+CGDCONT=1,");SerialAT.print(QUOTES);SerialAT.print("IP");SerialAT.print(QUOTES);SerialAT.print(",");SerialAT.print(QUOTES);SerialAT.print("internet");SerialAT.println(QUOTES);
-  delayWithRelay(1000);
+  sleep(1000, true);
   
   // Authenticate
   SerialAT.print("AT+XGAUTH=1,1,");SerialAT.print(QUOTES);SerialAT.print("tmobile");SerialAT.print(QUOTES);SerialAT.print(",");SerialAT.print(QUOTES);SerialAT.print("tmobile");SerialAT.println(QUOTES);
-  delayWithRelay(1000);
+  sleep(1000, true);
   
   SerialAT.println("AT+XIIC=1");                                  // Establish PPP link (check state with 'AT+XIIC?')
-  delayWithRelay(1000);
+  sleep(1000, true);
 }
 
 
