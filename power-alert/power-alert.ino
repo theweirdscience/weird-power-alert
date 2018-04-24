@@ -2,17 +2,17 @@
 /*
  * Uncomment this line to receive debug logging on the serial monitor
  */
-//#define DEVMODE 1
+#define DEVMODE 1
 
 /*
  * Uncomment the board you're using
  */
-#define ATTINY85 1 // ATTiny85
-//#define UNO 1      // Arduino UNO
+//#define ATTINY85 1 // ATTiny85
+#define UNO 1      // Arduino UNO
 
 #define MEASURE_INTERVAL 10
 #define HEARTBEAT_INTERVAL 24
-#define GPRS_BAUDRATE 38400
+#define GPRS_BAUDRATE 9600
 
 #if defined(UNO)
   #define GPRSPIN 4
@@ -96,6 +96,51 @@ void loop()
   }
 }
 
+void sendData(float v) {
+  char battery_id[] = "A122333";
+  char vin[5];
+  dtostrf(v, 5, 2, vin);
+
+  unsigned int payloadSize = 58;
+  payloadSize += strlen(battery_id);
+  payloadSize += strlen(vin);
+
+  if (vin[0] == ' ') {
+    payloadSize--;
+  }
+
+  GPRSOn();                                                       // Turn on GPRS module
+  
+  SerialAT.print("AT+TCPSETUP=0,85.222.229.221,80\r");              // Connect to server
+  delayWithRelay(1000);
+  SerialAT.print("AT+TCPSEND=0,");                                // Perform HTTP GET
+  delayWithRelay(100);
+  SerialAT.print(payloadSize);
+  delayWithRelay(100);
+  SerialAT.print("\r");
+  delayWithRelay(1000);
+  SerialAT.print("GET /api/battery/car-update/");
+  //delayWithRelay(100);
+  SerialAT.print(vin);
+  //delayWithRelay(100);
+  SerialAT.print("/");
+  //delayWithRelay(100);
+  SerialAT.print(battery_id);
+  //delayWithRelay(100);
+  SerialAT.print(" HTTP/1.1\n");
+  delayWithRelay(500);
+  SerialAT.print("Host: a.phi.guru\n\r\n");
+  //delayWithRelay(10);
+  //SerialAT.print("Connection: close\n\r\n");
+  delayWithRelay(1000);
+  SerialAT.print((char)0x0D);
+  delayWithRelay(10000);                                           // Wait until done receiving data
+  SerialAT.println("AT+TCPCLOSE=0");                              // Close connection
+  delayWithRelay(500);
+  
+  GPRSOff();                                                      // Turn off GPRS module
+}
+
 double measureVoltage() {
   unsigned int sample_count = 0;
   unsigned int sum = 0;
@@ -109,44 +154,6 @@ double measureVoltage() {
   return ((((float)sum / (float)25 * VREF) / MAXVAL) * DIVIDER) + 0.7;
 }
 
-void sendData(float v) {
-  char battery_id[] = "A122333";
-  char vin[5];
-  sprintf(vin, "%f", v);
-
-  unsigned int payloadSize = 80;
-  payloadSize += strlen(battery_id);
-  payloadSize += strlen(vin);
-  
-  GPRSOn();                                                       // Turn on GPRS module
-  
-  SerialAT.println("AT+TCPSETUP=0,85.222.229.221,80");              // Connect to server
-  delay(3000);
-  SerialAT.print("AT+TCPSEND=0,");                                // Perform HTTP GET
-  SerialAT.println(payloadSize);
-  delay(2000);
-  SerialAT.print("GET /api/battery/car-update/");
-  delayWithRelay(10);
-  SerialAT.print(v);
-  delayWithRelay(10);
-  SerialAT.print("/");
-  delayWithRelay(10);
-  SerialAT.print(battery_id);
-  delayWithRelay(10);
-  SerialAT.print(" HTTP/1.1\n");
-  delayWithRelay(10);
-  SerialAT.print("Host: a.phi.guru\n");
-  delayWithRelay(10);
-  SerialAT.print("Connection: close\n\r\n");
-  delayWithRelay(500);
-  SerialAT.print((char)0x0D);
-  delayWithRelay(5000);                                           // Wait until done receiving data
-  SerialAT.println("AT+TCPCLOSE=0");                              // Close connection
-  delayWithRelay(500);
-  
-  GPRSOff();                                                      // Turn off GPRS module
-}
-
 /*
  * Replacement for the default delay() method
  * Functions just the same, with the added bonus of passing through serial communication
@@ -155,10 +162,10 @@ void delayWithRelay(uint32_t del) {
   #if defined(DEVMODE)
     uint32_t timestamp = millis();
     while (millis() - timestamp < del) {
-      if (SerialAT.available()) {
+      while (SerialAT.available()) {
         Serial.write(SerialAT.read());
       }
-      if (Serial.available()) {
+      while (Serial.available()) {
         SerialAT.write(Serial.read());
       }
     }
@@ -178,7 +185,7 @@ void GPRSOn() {
   delay(300);
   digitalWrite(GPRSPIN, HIGH);
   SerialAT.begin(GPRS_BAUDRATE);
-  for(int i = 0; i < 30; i++){
+  for(int i = 0; i < 15; i++){
     delay(1000);
   }
   setupGPRS();
